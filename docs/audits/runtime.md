@@ -65,7 +65,13 @@ node --check tests/nmtm_hidden_blockbench.cjs
 4. 约 0.58 秒后，前台由 ChatGPT（PID `26504`、HWND `6359192`）变成“Windows 安全中心警报”（PID `5400`、HWND `2099132`）。该窗口不是自有测试窗口；活动桌面仍为索引 `0`，测试窗口的 cloak 标志仍为 `1`。
 5. 保护逻辑检测前台变化，隐藏并销毁仍被遮蔽的测试窗口，终止副本。尚未验证桌面 2 分配，也尚未加载插件或运行模型案例。
 
-先前一次 TCP 调试尝试也捕获到独立的“Windows 安全中心警报”改变前台。改用继承管道后再次出现，故“只要移除 TCP 调试端口就能解决”这一假设不成立。尚未确认警报由副本的哪个启动行为引起；不能据此认定具体网络调用、监听端口或插件逻辑是根因。
+先前一次 TCP 调试尝试也捕获到独立的“Windows 安全中心警报”改变前台。改用继承管道后再次出现，故“只要移除 TCP 调试端口就能解决”这一假设不成立。
+
+2026-10-27 的只读调查进一步确认了警报对应的程序路径：Windows Firewall 通道 Event 2097、Record 10155/10156 在 `16:01:03.248Z` 和 `16:01:03.257Z` 为 E 盘 `profile-Ms04Zj/isolated-electron-runtime/Blockbench.exe` 新增 TCP/UDP Query User 入站阻止规则，紧接着 `16:01:03.330Z` 前台变成安全警报。更早的 TCP 尝试也为另一个随机副本路径新增了同类规则。当前 harness 每次把 EXE 放入新 profile，因此已有按程序路径匹配的规则不能直接复用于下次随机副本。这是系统对测试副本的提示，未进入 NMTM 插件加载。
+
+安装 renderer 的 PeerJS 模块还有一条已核实的自动启动调用链：`edit_sessions.js` 导入 PeerJS，`new Util()` 的 `supports` 初始化构造 `RTCPeerConnection`，创建 `_PEERJSTEST` DataChannel 后关闭。源码、编译 bundle 及只使用 fake RTC 的离线 VM 检查均确认该调用发生于模块初始化。没有原生监听端口或调用栈证据，不能据此断言该 RTC 调用是历史防火墙警报的唯一原因。
+
+只读本地规则快照存在原安装及旧副本路径的 TCP/UDP Allow 项，但旧 E 盘副本已经清理；对有效 ActiveStore 的精确查询被拒绝访问。现有本地注册表规则不证明后续运行一定无提示。后续可评估固定且已核对的运行路径，并保留独立 profile 和全部窗口保护；本次没有实现或启动该方案，没有新增、放宽或删除防火墙规则。详细事件、源码定位、哈希和限制保存在本地 `output/runtime-alert-static-analysis-20261027.md`。
 
 更早的纯隐藏窗口方案无法取得 ApplicationView 桌面归属；外部 Python 进程调用 DWM app-cloak 返回 `0x80070005 / E_ACCESSDENIED`，在显示前终止。同进程原生桥接解决了 cloak 调用权限问题，尚未解决独立安全警报对前台的影响。
 
@@ -143,6 +149,7 @@ try {
 | `output/nmtm-rig-repair/runtime/profile-Ms04Zj-windows.jsonl` | 最新继承管道尝试，记录 cloak 成功及独立安全警报改变前台 |
 | `output/nmtm-rig-repair/runtime/profile-ttz3Cw-windows.jsonl` | 先前 TCP 尝试，也记录独立安全警报改变前台 |
 | `output/nmtm-rig-repair/runtime/profile-RqnUjj-windows.jsonl` | 首次同进程 cloak 尝试；当时尚未加入即时前台窗口归属日志 |
+| `output/runtime-alert-static-analysis-20261027.md` | 新副本程序路径的防火墙事件、PeerJS 启动调用链及只读规则调查；未重试 GUI |
 | `output/nmtm-rig-repair/runtime/rig-regression.json` | 成功进入模型测试后才会更新的结果文件；启动早期失败可能保留旧报告 |
 | `output/nmtm-rig-repair/runtime/*.glb` | 可能是旧版本或旧测试策略的产物，须结合报告时间和插件哈希验证来源 |
 | `output/nmtm-rig-repair/runtime/lifecycle-roundtrip.bbmodel` | 预定生命周期产物；本次阻塞期间未重新生成 |

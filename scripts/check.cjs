@@ -34,6 +34,7 @@ for (const args of [
   ['tests/nmtm_java_block_export.cjs'],
   ['tests/nmtm_hidden_bootstrap_unit.cjs'],
   ['tests/nmtm_desktop_guard_unit.cjs'],
-  ['tests/nmtm_cdp_pipe_unit.cjs']
+  ['tests/nmtm_cdp_pipe_unit.cjs'],
+  ['tests/nmtm_conversion_reporting.cjs']
 ]) run(args);
 console.log('PASS offline NMTM checks. Local Blockbench/Blender/visual acceptance runs separately.');

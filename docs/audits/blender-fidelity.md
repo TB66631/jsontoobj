@@ -54,6 +54,16 @@ two-mesh-sections 的 POSITION accessor 共 12 条记录，仅 6 条被三角面
 
 最终视频、抽帧与逐案例报告保存在 `output/nmtm-rig-repair/acceptance/final-source-control-*`。人工目检须由负责最终验收的维护者执行并记录；自动 `passed=true` 只代表脚本断言通过。
 
+### 2026-10-27 新转换产物的复验与视觉疑点
+
+当前生产内嵌桥重新转换固定旧 GLB 后，对 Craft / Jiaolong 的 Blend、FBX 四项产物再次后台制作逐骨动画、渲染 MP4，并从视频抽取接触表。四项退出码均为 0，输入文件哈希未变；合计 100 个控制骨测试实例、600 个数值姿势、16 个渲染控制实例、192 帧。这组数字独立于上面的 8 项历史记录，不是新增真实模型数量。
+
+父代理实际查看了四张新接触表：Craft 的小浅青零件在第三排的正负旋转中明显离开主体，底部小件在另一控制骨负向旋转时外摆。两格式均可观察到，因此不能仅凭隔离、数值有限和复位检查通过，就写成“没有脱落”或完成视觉验收。尚需对照源 JSON 的控制骨用途、pivot、IBM 及原动作，区分原本可独立运动的装饰件和错误绑定；本轮未据此改动生产源码。
+
+Jiaolong 两格式接触表的青色细须位置也有可见差异，但本次渲染没有统一初始动作与时间：Blend 从 frame 0、无 active action、2 条 NLA 的当前姿势开始；FBX 从 frame 1、`NMTM_ExactSkin|Take 2`、无 NLA 的当前姿势开始。脚本分别保存导入时姿势再冻结动画，因此这些图片不能直接证明同一动作同一时间下的格式差异，也不能用来声明视觉一致。相同动作与时间的 CPU 数值比较另见完整转换检查，后续视觉对比需要显式统一该条件。
+
+本组证据位于本地 `output/nmtm-rig-repair/acceptance/conversion-20261027-review-a93e7c/`，每项子目录包含 `acceptance.json`、视频和 `isolated-bone-contact.png`，调用与输入哈希见 `run-manifest.json`。输入仍是历史 runtime GLB，未启动新 Blockbench 导入；这些二进制证据不随 Git 分发。
+
 ## 复现与排查入口
 
 先检查桥 payload 一致：

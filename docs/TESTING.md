@@ -10,7 +10,7 @@ npm test
 npm run check
 ```
 
-`npm test` aliases `npm run check`. The check runner performs JavaScript syntax checks and the portable NMTM tests (bridge payload parity, plugin smoke, Java block-pack layouts, hidden-window bootstrap, desktop guard, and CDP-pipe protocol mocks). It must not run GUI tests, make network requests, or invoke the full Blender conversion suite. Use `npm run diagnose` for read-only environment and repository diagnostics; it must not change configuration or launch GUI applications.
+`npm test` aliases `npm run check`. The check runner performs JavaScript syntax checks and the portable NMTM tests (bridge payload parity, plugin smoke, Java block-pack layouts, hidden-window bootstrap, desktop guard, CDP-pipe protocol mocks, and conversion-report isolation). It must not run GUI tests, make network requests, or invoke the full Blender conversion suite. Use `npm run diagnose` for read-only environment and repository diagnostics; it must not change configuration or launch GUI applications.
 
 Diagnostics may optionally write a report under the repository's `output/` tree:
 
@@ -34,18 +34,25 @@ node tests/nmtm_java_block_export.cjs
 node tests/nmtm_hidden_bootstrap_unit.cjs
 node tests/nmtm_desktop_guard_unit.cjs
 node tests/nmtm_cdp_pipe_unit.cjs
+node tests/nmtm_conversion_reporting.cjs
 ```
 
 The Java block export test writes and then removes only `output/nmtm-java-block-export-test/`. The plugin smoke test has an opt-in live catalog mode (`NMTM_LIVE_VERSION_TEST=1`) that accesses Mojang/Misode endpoints; this mode is deliberately excluded from default checks. With manifest files supplied via `NMTM_MANIFEST_FILE` and `NMTM_MCMETA_FILE`, the same optional test can use local data instead.
 
-The conversion lifecycle harness is not a default/portable check. It writes `output/nmtm-rig-repair/conversion-contract/report.json`; even `--negative-only` replaces that report with a negative-only aggregate. It also checks for a Blender executable (override with `NMTM_BLENDER`) and its full mode consumes fresh Blockbench GLBs under `output/nmtm-rig-repair/runtime/`. Run it only when intentionally regenerating that evidence:
+The conversion-report isolation test is portable: it runs the lifecycle harness only in negative mode against synthetic inputs, checks that independent runs cannot replace earlier evidence, and does not start Blender. The full conversion lifecycle harness is a separate engineering acceptance run. Each invocation now writes to a new `output/nmtm-rig-repair/conversion-contract/runs/<mode>-<timestamp>-<random>/` directory. `--output-dir` may select a new directory under this checkout's `output/`; an existing destination, path outside that tree, or linked ancestor is rejected. Earlier reports, including the historical `conversion-contract/report.json`, are preserved.
+
+Full mode requires a Blender executable (override with `NMTM_BLENDER`) and input GLBs under `output/nmtm-rig-repair/runtime/`. These may be fixed historical inputs; check their provenance before describing a run as fresh Blockbench acceptance:
 
 ```powershell
 node tests/nmtm_conversion_contract.cjs --negative-only
 node tests/nmtm_conversion_contract.cjs
+# optional explicit new directory
+node tests/nmtm_conversion_contract.cjs --output-dir output/conversion-acceptance-new
+# read-only reclassification of one explicit saved report
+node tests/nmtm_conversion_contract.cjs --summarize-existing output/conversion-acceptance-new/report.json
 ```
 
-The full command launches Blender in hidden/background mode, performs real `.blend`/FBX conversions and reopens artifacts. Outputs and Blender temp paths are project-local. It is an engineering acceptance suite, not a quick test.
+The full command launches Blender in hidden/background mode, performs real `.blend`/FBX conversions and reopens artifacts. Outputs and Blender temp paths are project-local. Summary mode prints the recalculated result without changing the saved report and requires its production source hash to match the current plugin. The execution modes are mutually exclusive; the script rejects unknown or repeated arguments.
 
 ## Local runtime acceptance
 

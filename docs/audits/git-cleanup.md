@@ -16,7 +16,7 @@
 
 使用 `git rm --cached` 取消以下目录的跟踪，保留其磁盘内容：`NetMC Assets/`、`mc1.8.8 assets/`、`json/`、`output/`、`.idea/`、根目录及测试目录下的 `__pycache__/`。工作区中本来已删除的文件没有恢复。
 
-正式提交仅保留 53 个源码、文档、测试与配置文件。插件入口仍为根 `nmtm.js`；早期 `4.py` 与 `Blender Python/import_skeleton.py` 移到 `tools/legacy/`，并注明历史用途。维护中的导出契约提升为 `tests/nmtm_export_contract.cjs`，其 ASAR helper 只读本机安装文件；Blender fidelity 测试直接导入根桥源码。
+清洗基线提交仅保留 53 个源码、文档、测试与配置文件；后续维护提交可以加入新的源码或测试。插件入口仍为根 `nmtm.js`；早期 `4.py` 与 `Blender Python/import_skeleton.py` 移到 `tools/legacy/`，并注明历史用途。维护中的导出契约提升为 `tests/nmtm_export_contract.cjs`，其 ASAR helper 只读本机安装文件；Blender fidelity 测试直接导入根桥源码。
 
 新增 `.gitignore`、项目自身的 `package.json`、离线检查与只读诊断命令、Git 发布范围检查、GitHub 工作流、问题模板，以及排查和子代理审查文档。`.gitattributes` 固定源码的 LF 换行，保护嵌入 Python payload 的逐字节一致性。`.npmrc` 关闭更新提示，缓存与日志放入工作区 `output/npm-cache/`。
 
@@ -44,8 +44,12 @@ npm run repo:check
 git status --short
 ```
 
-最终历史应只有一个干净根提交；旧提交在主仓库中不可读取，`git fsck` 无损坏或悬空对象，`repo:check` 通过。该检查器限制顶层跟踪范围，拒绝依赖、缓存及常见产物二进制，并检查全部可达历史中超过 25 MiB 的 blob，输出最大对象的实际路径。
+清洗完成时历史只有一个干净根提交，后续维护正常追加提交；旧提交在主仓库中不可读取，`git fsck` 无损坏或悬空对象，`repo:check` 通过。该检查器限制顶层跟踪范围，拒绝依赖、缓存及常见产物二进制，并检查全部可达历史中超过 25 MiB 的 blob，输出最大对象的实际路径。
 
 整理前的 `npm test` 和只读 `npm run diagnose -- --json` 已通过。提交后的可移植验收使用 E 盘 `output/repository-clean-check/` 下的 `git clone --no-local`，不复用对象硬链接，也不复制被忽略的游戏资源、运行 profile 或依赖；在克隆内再次运行 `npm test`、`npm run diagnose` 和 `npm run repo:check`。具体提交号、对象数量和体积以该提交上的 Git 命令及最终执行记录为准。
+
+已完成的清洗基线为根提交 `c83f59eaeebf517ddb514b589d7853e1a96ff6c7`：53 个跟踪文件、65 个可达对象、53 个 blob；最大 blob 为 `nmtm.js` 的 214,626 字节，对象包为 596.54 KiB。旧根对象已不可读取，`git fsck --full --strict` 和 `repo:check` 通过。独立非硬链接 clone 的默认测试、诊断及仓库检查均通过，工作树干净；原始本地资源目录仍存在且未跟踪。后续正常维护提交可以增加小型源码对象，不再重写该基线。
+
+清洗后的独立最终复核记录在本地 `output/git-history-final-verification-20261027.md`。清理期间外部应用/用户已经配置 `origin`，本地远程跟踪 refs 指向上述基线；本代理没有添加 remote 或推送。最后一次在线只读核验遇到连接重置，不能把本地跟踪 refs 当作服务器此刻状态。
 
 本次仓库整理不代表真实 Blockbench 窗口验收、骨骼渲染或插件安装已经完成；这些状态保留在 [项目状态](../STATUS.md)。全过程不启动 GUI、不处理系统弹窗，测试输出和备份留在 E 盘。

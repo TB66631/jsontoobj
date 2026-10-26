@@ -1,7 +1,9 @@
 /* Exercise the shipped renderer entrypoint, not a separately maintained bridge.
- * node tests/nmtm_conversion_contract.cjs [--negative-only|--real-only]
- * --summarize-existing only recalculates aggregate classification of a saved run;
- * it requires the exact same production source hash and executes no conversions.
+ * node tests/nmtm_conversion_contract.cjs [--negative-only|--real-only] [--output-dir output/.../new-run]
+ * node tests/nmtm_conversion_contract.cjs --summarize-existing output/.../report.json
+ * Each execution owns a new directory; existing runs are never overwritten.
+ * Summarization requires an explicit report and the same production source hash.
+ * It writes JSON to stdout only, without changing the saved report or converting.
  * No GUI is launched. All conversion and temporary outputs are project-local.
  */
 'use strict';
@@ -13,19 +15,91 @@ const crypto = require('node:crypto');
 const nativeChild = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..');
-const OUT = path.join(ROOT, 'output/nmtm-rig-repair/conversion-contract');
+const OUTPUT_ROOT = path.join(ROOT, 'output');
+const RUNS_ROOT = path.join(OUTPUT_ROOT, 'nmtm-rig-repair/conversion-contract/runs');
+function parseArguments(args) {
+  let mode = 'all', outputDirectory, summaryReport;
+  const seen = new Set();
+  for (let i = 0; i < args.length; i++) {
+    const option = args[i];
+    if (!['--negative-only', '--real-only', '--output-dir', '--summarize-existing'].includes(option)
+        || seen.has(option)) throw new Error('Unknown or duplicate conversion option: ' + option);
+    seen.add(option);
+    if (option === '--negative-only' || option === '--real-only') {
+      if (mode !== 'all') throw new Error('Conversion modes are mutually exclusive');
+      mode = option === '--negative-only' ? 'negative' : 'real';
+    } else {
+      const value = args[++i];
+      if (!value || value.startsWith('--')) throw new Error('Missing path for ' + option);
+      if (option === '--output-dir') outputDirectory = value;
+      else summaryReport = value;
+    }
+  }
+  if (summaryReport && (mode !== 'all' || outputDirectory))
+    throw new Error('--summarize-existing cannot be combined with conversion modes or --output-dir');
+  return {mode, outputDirectory, summaryReport};
+}
+
+function validateOutputPath(value, kind) {
+  const target = path.resolve(ROOT, value);
+  const relative = path.relative(OUTPUT_ROOT, target);
+  if (!relative || relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative))
+    throw new Error('Conversion evidence must stay under repository/output: ' + target);
+  // Also reject Windows alternate data streams, device names, and path spellings
+  // that Windows normalizes, even when a portable check is running on Linux.
+  for (const segment of relative.split(path.sep)) {
+    if (/[<>:"|?*\x00-\x1f]/.test(segment) || /[ .]$/.test(segment)
+        || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(segment))
+      throw new Error('Unsafe conversion evidence path component: ' + segment);
+  }
+  let ancestor = target;
+  // path.relative applies the platform's case semantics. A differently cased
+  // Windows absolute path must still terminate at this repository root.
+  while (path.relative(ROOT, ancestor) !== '') {
+    let stat;
+    try { stat = fs.lstatSync(ancestor); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (stat) {
+      if (stat.isSymbolicLink()) throw new Error('Conversion evidence must not use links/junctions: ' + ancestor);
+      if (ancestor === target && kind === 'new-directory')
+        throw new Error('Conversion run directory already exists: ' + target);
+      if (ancestor !== target && !stat.isDirectory())
+        throw new Error('Conversion evidence ancestor is not a directory: ' + ancestor);
+      if (ancestor === target && kind === 'saved-report' && !stat.isFile())
+        throw new Error('Saved conversion report must be a regular file: ' + target);
+    } else if (ancestor === target && kind === 'saved-report') {
+      throw new Error('Saved conversion report does not exist: ' + target);
+    }
+    const parent = path.dirname(ancestor);
+    if (parent === ancestor) throw new Error('Conversion evidence ancestor escaped repository root');
+    ancestor = parent;
+  }
+  return target;
+}
+
+const options = parseArguments(process.argv.slice(2));
+const SUMMARY_REPORT = options.summaryReport ? validateOutputPath(options.summaryReport, 'saved-report') : null;
+const OUT = SUMMARY_REPORT ? null : validateOutputPath(options.outputDirectory ||
+  path.join(RUNS_ROOT, options.mode + '-' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + crypto.randomBytes(6).toString('hex')),
+  'new-directory');
 const SOURCE_PATH = path.join(ROOT, 'nmtm.js');
 const SOURCE = fs.readFileSync(SOURCE_PATH, 'utf8');
 const BLENDER = process.env.NMTM_BLENDER || 'D:/Program Files/Blender4.2/blender.exe';
-fs.mkdirSync(OUT, {recursive: true});
 const sourceHash = crypto.createHash('sha256').update(SOURCE).digest('hex');
 const report = {
+  schemaVersion: 2,
   generatedAt: new Date().toISOString(), source: SOURCE_PATH, sourceSha256: sourceHash,
   version: (SOURCE.match(/const PLUGIN_VERSION = '([^']+)'/) || [])[1],
   blender: BLENDER, negative: [], conversions: [], inspections: null,
-  mode: process.argv.includes('--negative-only') ? 'negative' : process.argv.includes('--real-only') ? 'real' : 'all'
+  mode: options.mode, outputDirectory: OUT
 };
-const persist = () => fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2) + String.fromCharCode(10));
+let reportCreated = false;
+const persist = () => {
+  assert.ok(!SUMMARY_REPORT, 'Summarization must not write a report');
+  fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2) + '\n',
+    {flag: reportCreated ? 'w' : 'wx'});
+  reportCreated = true;
+};
 
 function makeVm(execFile, spec = {}) {
   const calls = [], notices = [], errors = [];
@@ -169,7 +243,7 @@ async function realConversions() {
     const input = path.join(ROOT, 'output/nmtm-rig-repair/runtime', name + '.glb');
     const output = path.join(OUT, name + '.' + kind);
     assert.ok(fs.existsSync(input), 'Missing runtime fixture: ' + input);
-    if (fs.existsSync(output)) fs.unlinkSync(output);
+    const inputSha256 = crypto.createHash('sha256').update(fs.readFileSync(input)).digest('hex');
     let execution, child, callbackCount = 0;
     const h = makeVm((exe, args, options, cb) => {
       execution = checkExecution([exe, args, options]);
@@ -183,13 +257,15 @@ async function realConversions() {
     console.log('CONTRACT_CONVERT_START', name, kind);
     const before = Date.now();
     const value = await h.api.blenderConvert(input, output, kind, () => callbackCount++);
-    const caseResult = {name, kind, input, output, value, callbackCount, execution,
+    const caseResult = {name, kind, input, inputSha256, inputProvenance: 'Existing fixed runtime GLB; this run does not launch Blockbench',
+      output, value, callbackCount, execution,
       durationSeconds: (Date.now() - before) / 1000,
       childError: child && child.error, marker: !!(child && child.stdout.includes('NMTM_CONVERT_OK ' + kind + ' ')),
       size: fs.existsSync(output) ? fs.statSync(output).size : 0,
       retainedCallerInput: fs.existsSync(input),
       temporaryScriptRemoved: !execution || !fs.existsSync(execution.script),
       temporaryDirectoryRemoved: !execution || !fs.existsSync(execution.directory), errors: h.errors};
+    caseResult.artifactSha256 = caseResult.size > 0 ? crypto.createHash('sha256').update(fs.readFileSync(output)).digest('hex') : null;
     caseResult.passed = value === output && callbackCount === 1 && !caseResult.childError
       && caseResult.marker && caseResult.size > 0 && caseResult.retainedCallerInput
       && caseResult.temporaryScriptRemoved && caseResult.temporaryDirectoryRemoved;
@@ -214,32 +290,68 @@ async function realConversions() {
   console.log('CONTRACT_INSPECTION', !inspect.error && report.inspections.report && report.inspections.report.passed ? 'PASS' : 'FAIL');
 }
 
-(async () => {
-  if (process.argv.includes('--summarize-existing')) {
-    const saved = JSON.parse(fs.readFileSync(path.join(OUT, 'report.json'), 'utf8'));
-    assert.equal(saved.sourceSha256, sourceHash, 'Cannot reuse a run from different production source');
-    Object.assign(report, saved);
-    // Migrate the explicitly non-contractual extra probe from the initial run.
-    const extra = report.negative.find(result => result.name === 'duplicate-child-callback');
-    if (extra) extra.advisory = true;
-    report.aggregateReclassifiedAt = new Date().toISOString();
-  } else {
-    persist();
-    if (report.mode !== 'real') await negatives();
-    if (report.mode !== 'negative') await realConversions();
-  }
-  report.sourceUnchangedDuringRun = crypto.createHash('sha256').update(fs.readFileSync(SOURCE_PATH)).digest('hex') === sourceHash;
+function classifyReport() {
+  assert.ok(['all', 'negative', 'real'].includes(report.mode), 'Invalid saved report mode');
+  assert.ok(Array.isArray(report.negative) && Array.isArray(report.conversions), 'Invalid saved report case arrays');
+  const currentSourceHash = crypto.createHash('sha256').update(fs.readFileSync(SOURCE_PATH)).digest('hex');
+  if (SUMMARY_REPORT) {
+    // Present-day equality cannot prove that the source stayed unchanged during
+    // an earlier execution. Preserve that earlier observation, including false
+    // or an absent (unknown) value, rather than reclassifying it as true.
+    report.currentSourceMatchesSaved = currentSourceHash === report.sourceSha256;
+  } else report.sourceUnchangedDuringRun = currentSourceHash === sourceHash;
   const mandatory = report.negative.filter(result => !result.advisory);
   report.mandatorySummary = {negativeCases: mandatory.length, negativePassed: mandatory.filter(result => result.passed).length,
     actualConversions: report.conversions.length, conversionsPassed: report.conversions.filter(result => result.passed).length,
     reopenedInspections: report.inspections && report.inspections.report ? report.inspections.report.cases.length : 0,
     reopenedInspectionsPassed: report.inspections && report.inspections.report ? report.inspections.report.cases.filter(result => result.passed).length : 0};
+  report.expectedCaseCounts = {negativeCases: report.mode === 'real' ? 0 : 13,
+    actualConversions: report.mode === 'negative' ? 0 : 6, reopenedInspections: report.mode === 'negative' ? 0 : 6};
+  report.complete = Object.entries(report.expectedCaseCounts).every(([key, count]) => report.mandatorySummary[key] === count);
   report.advisoryFindings = report.negative.filter(result => result.advisory && !result.passed)
     .map(result => ({name: result.name, finding: result.failure,
       reason: 'Synthetic probe violates native execFile single-callback contract; excluded from required pass aggregate'}));
-  report.passed = mandatory.every(c => c.passed) && report.conversions.every(c => c.passed)
-    && (report.mode === 'negative' || !!(report.inspections && !report.inspections.childError && report.inspections.report && report.inspections.report.passed));
-  persist();
-  console.log('CONTRACT_REPORT', path.join(OUT, 'report.json'), report.passed ? 'PASS' : 'FAIL');
+  report.passed = report.complete && report.sourceUnchangedDuringRun === true
+    && (!SUMMARY_REPORT || report.currentSourceMatchesSaved) && !report.fatal
+    && mandatory.every(c => c.passed) && report.conversions.every(c => c.passed)
+    && (report.mode === 'negative' || !!(report.inspections && !report.inspections.childError
+      && report.inspections.report && report.inspections.report.passed
+      && report.inspections.report.cases.every(c => c.passed)));
+}
+
+let runCreated = false;
+(async () => {
+  if (SUMMARY_REPORT) {
+    const saved = JSON.parse(fs.readFileSync(SUMMARY_REPORT, 'utf8'));
+    assert.equal(saved.sourceSha256, sourceHash, 'Cannot reuse a run from different production source');
+    Object.assign(report, saved);
+    report.savedPassed = saved.passed;
+    // Migrate the explicitly non-contractual extra probe from the initial run.
+    const extra = report.negative.find(result => result.name === 'duplicate-child-callback');
+    if (extra) extra.advisory = true;
+    report.summaryOnly = true;
+    report.summarySourceReport = SUMMARY_REPORT;
+    report.summarizedAt = new Date().toISOString();
+  } else {
+    fs.mkdirSync(path.dirname(OUT), {recursive: true});
+    validateOutputPath(OUT, 'new-directory');
+    // mkdir without recursive is the exclusive claim: even concurrent runs with
+    // the same explicit destination must fail rather than share their artifacts.
+    fs.mkdirSync(OUT);
+    runCreated = true;
+    persist();
+    if (report.mode !== 'real') await negatives();
+    if (report.mode !== 'negative') await realConversions();
+  }
+  classifyReport();
+  if (SUMMARY_REPORT) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+  else {
+    persist();
+    console.log('CONTRACT_REPORT', path.join(OUT, 'report.json'), report.passed ? 'PASS' : 'FAIL');
+  }
   process.exitCode = report.passed ? 0 : 1;
-})().catch(error => { report.fatal = error.stack; report.passed = false; persist(); console.error(error.stack); process.exitCode = 1; });
+})().catch(error => {
+  report.fatal = error.stack; report.passed = false;
+  if (runCreated) persist();
+  console.error(error.stack); process.exitCode = 1;
+});

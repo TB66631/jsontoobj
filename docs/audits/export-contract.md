@@ -34,7 +34,7 @@
 
 当前插件将 Python 桥内嵌于 `nmtm.js`，用户安装插件时不需要另放 `.py` 文件。导出时在目标目录生成自有 `.nmtm-export-*` 临时目录，子进程 TEMP/TMP 指向该目录。仅当进程成功、包含 `NMTM_CONVERT_OK` 标记且目标文件非空时，才报告成功。
 
-实际测试调用的是生产插件里的 `blenderConvert`，不只是独立执行桥脚本。2026-10-27 对 SHA256 `004238...` 的完整运行快照曾报告运行期间源文件未变化，并记录：
+实际测试调用的是生产插件里的 `blenderConvert`，不只是独立执行桥脚本。2026-10-27 00:43（Asia/Shanghai）重新对 SHA256 `004238...` 执行完整后台转换，运行期间源文件未变化，新的同一聚合 JSON 记录：
 
 - 13/13 必须通过的异常与清理案例：非零退出、缺标记、缺文件、空文件、启动抛错、缺少 Blender、不支持格式、文件检查抛错、完成回调抛错，以及调用者/插件自有输入的不同清理规则。
 - 6/6 实际转换：Craft、Cyber、Jiaolong，各导出 `.blend` 与 `.fbx`。
@@ -42,7 +42,11 @@
 
 另有一个人为重复调用 child callback 的 advisory 未通过；该探针违反 Node 原生 `execFile` 的单回调契约，因此不计入必须通过项。该结论不隐藏在总通过数字中。
 
-重要的证据留存说明：随后一次 `--negative-only` 运行将本地 `conversion-contract/report.json` 覆写成 13/13 负向案例通过、0 次转换/重开检查的报告。先前完整报告快照曾是 13/13 + 6/6 + 6/6，绑定上述 SHA，但当前完整聚合 JSON 已不在工作区。`inspection.json` 仍保留六个重开产物的检查结果；同目录 `agent-status.md` 描述完整运行，但其插件 SHA 是更早的 `1cd682...`，因此不能独自证明完整运行来自当前 SHA。需重新运行完整套件以恢复可机器复核、同一文件内绑定哈希的证据。请不要把当前 `report.json` 的 13/13 误读为 6/6 转换仍在该报告中。
+本次可复核报告为 `output/nmtm-rig-repair/conversion-contract/runs/all-2026-10-26T16-43-42-133Z-8e6f1566c685/report.json`，SHA256 为 `6de53bbf024abd33c0feae34e4712a10fed80a9f32e63b97b3d8a7c841300336`。报告记录每个固定输入 GLB、转换产物的 SHA256、调用参数、临时目录清理和六个重开结果。三种模型的所有顶点都有权重；Blend packed / FBX embedded 纹理可读。默认姿势与动作采样的最大位置误差为 `9.51884521782631e-6`。这是旧 runtime GLB 经当前插件内嵌桥的新转换，未启动 Blockbench，不代替当前 renderer 的新导入验收。
+
+历史上的 `conversion-contract/report.json` 确实曾被 `--negative-only` 覆写为只有负向案例的报告，该旧文件保留原样。现已修复脚本：每次执行独占新的 `runs/<mode>-<timestamp>-<random>/` 目录；显式输出只接受项目 `output/` 下尚不存在的目录，并拒绝链接/越界路径。`--summarize-existing <report.json>` 只向 stdout 输出重新分类，要求相同生产哈希，保留原运行的源码稳定性结论，不写回旧证据。新增便携回归覆盖互不覆盖、拒绝非法目标、缺案例不能判定通过及只读摘要，不启动 Blender 或 GUI。
+
+独立审查另发现并推动修复了两处边界问题：Windows 下等价但大小写不同的绝对路径不应导致祖先遍历不终止；inspection 父级标记成功时仍必须逐项核对结果。当前便携回归共 12 组，包含这两项、历史源码状态为 false/unknown 时保持失败，以及三次真实 harness 的模拟负向子进程。完整转换报告生成于分类器最后加固之前；最后版本对它的只读摘要仍通过，未改写原报告以冒充新一次完整转换。独立审查记录保存在本地 `output/report-isolation-independent-review-20261027.md`。
 
 ## 回归入口
 
@@ -61,6 +65,8 @@ node tests/nmtm_conversion_contract.cjs --negative-only
 ```powershell
 $env:NMTM_BLENDER = 'D:/Program Files/Blender4.2/blender.exe'
 node tests/nmtm_conversion_contract.cjs
+# 只读检查某一份明确指定的报告；不重新转换或修改它
+node tests/nmtm_conversion_contract.cjs --summarize-existing output/nmtm-rig-repair/conversion-contract/runs/all-2026-10-26T16-43-42-133Z-8e6f1566c685/report.json
 ```
 
 仓库维护的导出审查入口为：
@@ -78,7 +84,8 @@ node tests/nmtm_export_contract.cjs
 - 详细 API 审查：`output/nmtm-rig-repair/export-audit.md`
 - 仓库审查入口：[nmtm_export_contract.cjs](../../tests/nmtm_export_contract.cjs)
 - API 契约结果：`output/nmtm-rig-repair/audit-c3-contract.json`
-- 转换/清理/重开报告：`output/nmtm-rig-repair/conversion-contract/report.json`
+- 当前完整转换/清理/重开报告：`output/nmtm-rig-repair/conversion-contract/runs/all-2026-10-26T16-43-42-133Z-8e6f1566c685/report.json`
+- 历史上被覆盖的负向报告（原样保留）：`output/nmtm-rig-repair/conversion-contract/report.json`
 - 保留的 Blend/FBX 独立检查结果：`output/nmtm-rig-repair/conversion-contract/inspection.json`
 - 转换代理状态记录（哈希较早，不能独立绑定最终完整运行）：`output/nmtm-rig-repair/conversion-contract/agent-status.md`
 - runtime 当前状态与隔离失败记录：`output/nmtm-rig-repair/runtime/agent-status.md`
