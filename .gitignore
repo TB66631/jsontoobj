@@ -1,0 +1,35 @@
+# Local Minecraft source assets and private game installations
+/NetMC Assets/
+/mc1.8.8 assets/
+/json/
+
+# Generated models, conversions, captures, runtime profiles and audit evidence
+/output/
+
+# Local IDE and Python artifacts
+/.idea/
+/__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+/Blender Python/
+
+# Java / Blender / Node generated artifacts
+node_modules/
+coverage/
+dist/
+build/
+*.blend
+*.blend1
+*.fbx
+*.glb
+*.log
+npm-debug.log*
+
+# Local settings and credentials
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a reproducible NMTM plugin issue without uploading private game assets
+body:
+  - type: input
+    id: blockbench
+    attributes:
+      label: Blockbench version
+    validations:
+      required: true
+  - type: input
+    id: nmtm
+    attributes:
+      label: NMTM version
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use a small synthetic or self-created model; do not attach licensed game files.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual result
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Check results
+      description: Include the summary from npm test and relevant redacted error text.
+    validations:
+      required: false
+  - type: checkboxes
+    id: private_data
+    attributes:
+      label: Data safety
+      options:
+        - label: I did not attach game asset packs, user profiles, cookies, credentials, or machine-specific private data.
+          required: true
